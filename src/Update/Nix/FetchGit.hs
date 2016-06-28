@@ -37,9 +37,10 @@ data GithubPath = GithubPath{ owner :: Text
                             deriving (Show)
 
 -- | A fetchgit, fetchgitPrivate or fetchFromGitHub value's expressions
-data FetchGitArgs = FetchGitArgs{ urlExpr    :: Either NExprLoc GithubPath
-                                , revExpr    :: NExprLoc
-                                , sha256Expr :: NExprLoc
+data FetchGitArgs = FetchGitArgs{ urlExpr     :: Either NExprLoc GithubPath
+                                , revExpr     :: NExprLoc
+                                , sha256Expr  :: NExprLoc
+                                , versionExpr :: Maybe NExprLoc
                                 }
   deriving (Show)
 
@@ -114,18 +115,27 @@ fetchgitCalleeNames = ["fetchgit", "fetchgitPrivate"]
 -- | Extract the calls to `fetchgit` in a nix expression
 fetchGitValues :: NExprLoc -> Either Warning [FetchGitArgs]
 fetchGitValues e =
-  let exps = universe e
-      fetchGitArgs = [a | AnnE _ (NApp (AnnE _ (NSym fg)) a) <- exps
-                        , fg `elem` fetchgitCalleeNames
-                        ]
-  in traverse extractFetchGitArgs fetchGitArgs
+  -- TODO: change 'Nothing' to 'Just x' where x is the set that contains the call to fetch git
+  traverse (extractFetchGitArgs Nothing)
+           [a | AnnE _ (NApp (AnnE _ (NSym fg)) a) <- universe e
+              , fg `elem` fetchgitCalleeNames
+              ]
 
--- | Extract a 'FetchGitArgs' from the attrset being passed to fetchgit.
-extractFetchGitArgs :: NExprLoc -> Either Warning FetchGitArgs
-extractFetchGitArgs = \case
+-- | Extract a 'FetchGitArgs' from the attrset being passed to fetchgit and
+-- the attrset that contains the fetchgit call (if it exists).
+extractFetchGitArgs :: Maybe NExprLoc -> NExprLoc -> Either Warning FetchGitArgs
+extractFetchGitArgs contextGitAttrs fetchGitAttrs =
+  case fetchGitAttrs of
   AnnE _ (NSet bindings) ->
     FetchGitArgs <$> (Left <$> extractAttr "url" bindings)
                  <*> extractAttr "rev" bindings
                  <*> extractAttr "sha256" bindings
+                 <*> Right (case contextGitAttrs of
+                       (Just (AnnE _ (NSet contextBindings))) ->
+                         (case (extractAttr "version" contextBindings) of
+                           (Left _) -> Nothing
+                           (Right a) -> (Just a)
+                         )
+                       _ -> Nothing)
   e -> Left (ArgNotASet e)
 
