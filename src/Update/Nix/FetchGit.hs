@@ -13,6 +13,7 @@ module Update.Nix.FetchGit
 
 import           Control.Concurrent.Async     (mapConcurrently)
 import           Data.Generics.Uniplate.Data
+import           Data.List                    as List
 import           Data.Monoid                  ((<>))
 import           Data.Text
 import qualified Data.Text.IO                 as T
@@ -120,6 +121,18 @@ fetchGitValues e =
            [a | AnnE _ (NApp (AnnE _ (NSym fg)) a) <- universe e
               , fg `elem` fetchgitCalleeNames
               ]
+
+isASet :: NExprLoc -> Bool
+isASet (AnnE _ (NSet _)) = True
+isASet _ = False
+
+enclosingSet :: [NExprLoc] -> Maybe NExprLoc
+enclosingSet = List.find isASet
+
+extractFetchGitArgs1 :: [NExprLoc] -> Maybe (Either Warning FetchGitArgs)
+extractFetchGitArgs1 ((AnnE _ (NApp (AnnE _ (NSym "fetchgit")) fetchGitAttrs)):context) =
+                     Just (extractFetchGitArgs (enclosingSet context) fetchGitAttrs)
+extractFetchGitArgs1 _ = Nothing
 
 -- | Extract a 'FetchGitArgs' from the attrset being passed to fetchgit and
 -- the attrset that contains the fetchgit call (if it exists).
